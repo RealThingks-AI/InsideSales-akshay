@@ -674,7 +674,11 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                   </TooltipContent>
                 </Tooltip>
                 <PopoverContent className="w-72 p-0" align="start">
-                  <div className="max-h-60 overflow-y-auto pointer-events-auto p-1">
+                  <div
+                    className="max-h-60 overflow-y-auto overscroll-contain pointer-events-auto p-1"
+                    onWheelCapture={(e) => e.stopPropagation()}
+                    onTouchMove={(e) => e.stopPropagation()}
+                  >
                     {TIMEZONES.map((tz) => (
                       <Button
                         key={tz.value}
