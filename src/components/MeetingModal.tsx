@@ -673,8 +673,8 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                     <p>{selectedTimezone?.label || timezone}</p>
                   </TooltipContent>
                 </Tooltip>
-                <PopoverContent className="w-72 p-0 max-h-60 overflow-y-auto" align="start">
-                  <div className="p-1">
+                <PopoverContent className="w-72 p-0" align="start">
+                  <div className="max-h-60 overflow-y-auto pointer-events-auto p-1">
                     {TIMEZONES.map((tz) => (
                       <Button
                         key={tz.value}
