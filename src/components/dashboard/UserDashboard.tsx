@@ -148,21 +148,28 @@ const UserDashboard = () => {
     enabled: !!user?.id
   });
 
-  // Fetch user's deals count and value
+  // Fetch user's deals count and value - check both created_by and lead_owner
   const { data: dealsData, isLoading: dealsLoading } = useQuery({
     queryKey: ['user-deals-count', user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('deals').select('id, stage, total_contract_value').eq('created_by', user?.id);
+      // Fetch deals where user is either creator or lead owner
+      const { data, error } = await supabase.from('deals').select('id, stage, total_contract_value, lead_owner, created_by');
       if (error) throw error;
-      const totalValue = data?.reduce((sum, d) => sum + (d.total_contract_value || 0), 0) || 0;
-      const wonDeals = data?.filter(d => d.stage === 'Won') || [];
+      
+      // Filter deals that belong to current user (either as creator or lead owner)
+      const userDeals = (data || []).filter(d => 
+        d.created_by === user?.id || d.lead_owner === user?.id
+      );
+      
+      const totalValue = userDeals.reduce((sum, d) => sum + (d.total_contract_value || 0), 0);
+      const wonDeals = userDeals.filter(d => d.stage === 'Won');
       const wonValue = wonDeals.reduce((sum, d) => sum + (d.total_contract_value || 0), 0);
       return {
-        total: data?.length || 0,
+        total: userDeals.length,
         won: wonDeals.length,
         totalValue,
         wonValue,
-        active: data?.filter(d => !['Won', 'Lost', 'Dropped'].includes(d.stage)).length || 0
+        active: userDeals.filter(d => !['Won', 'Lost', 'Dropped'].includes(d.stage)).length
       };
     },
     enabled: !!user?.id
@@ -223,33 +230,27 @@ const UserDashboard = () => {
     enabled: !!user?.id
   });
 
-  // Fetch recent activities
+  // Fetch recent activities from security audit log - filter by current user
   const { data: recentActivities } = useQuery({
     queryKey: ['user-recent-activities', user?.id],
     queryFn: async () => {
-      const { data: contactActivities, error: contactError } = await supabase
-        .from('contact_activities')
-        .select('id, subject, activity_type, activity_date')
-        .eq('created_by', user?.id)
-        .order('activity_date', { ascending: false })
-        .limit(3);
-      if (contactError) throw contactError;
+      const { data, error } = await supabase
+        .from('security_audit_log')
+        .select('id, action, resource_type, resource_id, created_at, details, user_id')
+        .eq('user_id', user?.id)
+        .in('action', ['CREATE', 'UPDATE', 'DELETE'])
+        .in('resource_type', ['contacts', 'leads', 'deals', 'accounts', 'meetings', 'tasks'])
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (error) throw error;
 
-      const { data: accountActivities, error: accountError } = await supabase
-        .from('account_activities')
-        .select('id, subject, activity_type, activity_date')
-        .eq('created_by', user?.id)
-        .order('activity_date', { ascending: false })
-        .limit(3);
-      if (accountError) throw accountError;
-
-      const combined = [
-        ...(contactActivities || []).map(a => ({ ...a, source: 'contact' })),
-        ...(accountActivities || []).map(a => ({ ...a, source: 'account' })),
-      ].sort((a, b) => new Date(b.activity_date).getTime() - new Date(a.activity_date).getTime())
-        .slice(0, 5);
-
-      return combined;
+      return (data || []).map(log => ({
+        id: log.id,
+        subject: `${log.action} ${log.resource_type}`,
+        activity_type: log.action,
+        activity_date: log.created_at,
+        resource_type: log.resource_type,
+      }));
     },
     enabled: !!user?.id
   });
@@ -336,6 +337,15 @@ const UserDashboard = () => {
             <CardContent>
               <div className="text-2xl font-bold">{actionItemsData?.total || 0}</div>
               <p className="text-xs text-muted-foreground">{actionItemsData?.overdue || 0} overdue</p>
+              <Button 
+                variant="link" 
+                size="sm" 
+                className="mt-2 p-0 h-auto text-xs text-primary"
+                onClick={() => navigate('/tasks')}
+              >
+                <Plus className="w-3 h-3 mr-1" />
+                Create Task
+              </Button>
             </CardContent>
           </Card>
         );
@@ -392,23 +402,47 @@ const UserDashboard = () => {
               {taskReminders && taskReminders.length > 0 ? (
                 <div className="space-y-3">
                   {taskReminders.map((task) => {
-                    const isOverdue = task.due_date && isBefore(new Date(task.due_date), new Date());
+                    const taskDueDate = task.due_date ? new Date(task.due_date) : null;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const isOverdue = taskDueDate && isBefore(taskDueDate, today);
+                    const isDueToday = taskDueDate && taskDueDate.toDateString() === new Date().toDateString();
+                    
                     return (
-                      <div key={task.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
+                      <div 
+                        key={task.id} 
+                        className={`flex items-center justify-between p-2 rounded-lg ${
+                          isOverdue 
+                            ? 'bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700' 
+                            : isDueToday 
+                              ? 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
+                              : 'bg-muted/50'
+                        }`}
+                      >
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate">{task.title}</p>
-                          <p className={`text-xs ${isOverdue ? 'text-red-500' : 'text-muted-foreground'}`}>
-                            {isOverdue && <AlertCircle className="w-3 h-3 inline mr-1" />}
+                          <p className={`text-sm font-medium truncate ${isOverdue ? 'text-red-800 dark:text-red-200' : ''}`}>
+                            {task.title}
+                          </p>
+                          <p className={`text-xs ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : isDueToday ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground'}`}>
+                            <AlertCircle className={`w-3 h-3 inline mr-1 ${isOverdue || isDueToday ? '' : 'hidden'}`} />
+                            {isOverdue ? 'OVERDUE - ' : isDueToday ? 'Due Today - ' : ''}
                             Due: {task.due_date ? format(new Date(task.due_date), 'dd/MM/yyyy') : 'No date'}
                           </p>
                         </div>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          task.priority === 'high' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                          task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
-                          'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-                        }`}>
-                          {task.priority}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {isOverdue && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-red-500 text-white font-semibold">
+                              OVERDUE
+                            </span>
+                          )}
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            task.priority === 'high' ? 'bg-red-500 text-white' :
+                            task.priority === 'medium' ? 'bg-amber-500 text-white' :
+                            'bg-slate-500 text-white'
+                          }`}>
+                            {task.priority}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
@@ -422,16 +456,19 @@ const UserDashboard = () => {
       case "recentActivities":
         return (
           <Card className="h-full animate-fade-in">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Activity className="w-5 h-5 text-primary" />
                 Recent Activities
               </CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/settings?tab=audit')}>
+                View All
+              </Button>
             </CardHeader>
             <CardContent>
               {recentActivities && recentActivities.length > 0 ? (
-                <div className="space-y-3">
-                  {recentActivities.map((activity) => (
+                <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                  {recentActivities.slice(0, 5).map((activity) => (
                     <div key={activity.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
                       <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                         <Activity className="w-4 h-4 text-primary" />
@@ -439,14 +476,18 @@ const UserDashboard = () => {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{activity.subject}</p>
                         <p className="text-xs text-muted-foreground">
-                          {activity.activity_type} • {format(new Date(activity.activity_date), 'dd/MM/yyyy')}
+                          {activity.activity_type} • {format(new Date(activity.activity_date), 'dd/MM/yyyy HH:mm')}
                         </p>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No recent activities</p>
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Activity className="w-10 h-10 text-muted-foreground/50 mb-2" />
+                  <p className="text-sm text-muted-foreground">No recent activities</p>
+                  <p className="text-xs text-muted-foreground mt-1">Activities will appear here as you work</p>
+                </div>
               )}
             </CardContent>
           </Card>
