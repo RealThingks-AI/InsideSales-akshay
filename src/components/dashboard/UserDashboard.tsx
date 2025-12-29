@@ -5,17 +5,53 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, FileText, Briefcase, TrendingUp, Clock, CheckCircle2, ArrowRight, Plus, Settings2, Calendar, Activity, Bell, AlertCircle } from "lucide-react";
-import { useState } from "react";
-import { DashboardCustomizeModal, WidgetKey, WidgetSize, WidgetSizeConfig, DEFAULT_WIDGETS } from "./DashboardCustomizeModal";
+import { 
+  Users, FileText, Briefcase, TrendingUp, Clock, CheckCircle2, ArrowRight, Plus, Settings2, Calendar, Activity, Bell, AlertCircle, Info, 
+  Target, PieChart, LineChart, DollarSign, Mail, MessageSquare, CheckCircle, AlertTriangle, 
+  Globe, Building2, Star, Trophy, Gauge, ListTodo, PhoneCall, MapPin, Percent, ArrowUpRight, Filter, Move, Check
+} from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { DashboardCustomizeModal, WidgetKey, WidgetLayoutConfig, WidgetLayout, DEFAULT_WIDGETS } from "./DashboardCustomizeModal";
+import { ResizableDashboard } from "./ResizableDashboard";
 import { toast } from "sonner";
 import { format, isAfter, isBefore, addDays } from "date-fns";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { TaskModal } from "@/components/tasks/TaskModal";
+import { MeetingModal } from "@/components/MeetingModal";
+import { useTasks } from "@/hooks/useTasks";
+import { Task } from "@/types/task";
 
 const UserDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [isResizeMode, setIsResizeMode] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(1200);
+  
+  // Modal states for viewing records
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [selectedMeeting, setSelectedMeeting] = useState<any>(null);
+  const [meetingModalOpen, setMeetingModalOpen] = useState(false);
+  
+  // Task operations
+  const { createTask, updateTask, fetchTasks } = useTasks();
+
+  // Measure container width for grid layout
+  useEffect(() => {
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth - 48); // subtract padding
+      }
+    };
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
   
   // Fetch display name directly from profiles table
   const { data: userName } = useQuery({
@@ -53,26 +89,27 @@ const UserDashboard = () => {
     enabled: !!user?.id,
   });
 
-  // Get visible widgets, order, and sizes from preferences or use defaults
-  const defaultWidgetKeys = DEFAULT_WIDGETS.map(w => w.key);
-  const visibleWidgets: WidgetKey[] = dashboardPrefs?.visible_widgets 
-    ? (dashboardPrefs.visible_widgets as WidgetKey[])
-    : defaultWidgetKeys;
-  const widgetOrder: WidgetKey[] = dashboardPrefs?.card_order 
-    ? (dashboardPrefs.card_order as WidgetKey[])
-    : defaultWidgetKeys;
-  
-  // Safely parse widget sizes - handle legacy string values gracefully
-  const parseWidgetSizes = (): WidgetSizeConfig => {
+  // Defaults (used before prefs load and when a user has no saved prefs yet)
+  const defaultWidgetKeys = DEFAULT_WIDGETS.map((w) => w.key);
+  const defaultVisibleWidgets = defaultWidgetKeys.filter(
+    (k) => DEFAULT_WIDGETS.find((w) => w.key === k)?.visible
+  );
+
+  // Local state so add/remove/drag/resize feels instant (not waiting on refetch)
+  const [visibleWidgets, setVisibleWidgets] = useState<WidgetKey[]>(defaultVisibleWidgets);
+  const [widgetOrder, setWidgetOrder] = useState<WidgetKey[]>(defaultWidgetKeys);
+
+  // Safely parse widget layouts - handle legacy string values gracefully
+  const parseWidgetLayouts = (): WidgetLayoutConfig => {
     if (!dashboardPrefs?.layout_view) return {};
-    if (typeof dashboardPrefs.layout_view === 'object') {
-      return dashboardPrefs.layout_view as WidgetSizeConfig;
+    if (typeof dashboardPrefs.layout_view === "object") {
+      return dashboardPrefs.layout_view as WidgetLayoutConfig;
     }
-    if (typeof dashboardPrefs.layout_view === 'string') {
+    if (typeof dashboardPrefs.layout_view === "string") {
       try {
         const parsed = JSON.parse(dashboardPrefs.layout_view);
-        if (typeof parsed === 'object' && parsed !== null) {
-          return parsed as WidgetSizeConfig;
+        if (typeof parsed === "object" && parsed !== null) {
+          return parsed as WidgetLayoutConfig;
         }
       } catch {
         // Legacy string value like "grid" - ignore and use defaults
@@ -80,16 +117,59 @@ const UserDashboard = () => {
     }
     return {};
   };
-  const widgetSizes: WidgetSizeConfig = parseWidgetSizes();
+
+  const [widgetLayouts, setWidgetLayouts] = useState<WidgetLayoutConfig>(parseWidgetLayouts());
+
+  // When the logged-in user or saved prefs change, sync local state (user-specific)
+  useEffect(() => {
+    setIsResizeMode(false);
+
+    if (!user?.id) return;
+
+    const sanitizeKeys = (keys: WidgetKey[]) => {
+      const allowed = new Set(defaultWidgetKeys);
+      const uniq: WidgetKey[] = [];
+      const seen = new Set<string>();
+      keys.forEach((k) => {
+        if (!allowed.has(k)) return;
+        if (seen.has(k)) return;
+        seen.add(k);
+        uniq.push(k);
+      });
+      return uniq;
+    };
+
+    const nextVisibleRaw: WidgetKey[] = dashboardPrefs?.visible_widgets
+      ? (dashboardPrefs.visible_widgets as WidgetKey[])
+      : defaultVisibleWidgets;
+
+    const nextOrderRaw: WidgetKey[] = dashboardPrefs?.card_order
+      ? (dashboardPrefs.card_order as WidgetKey[])
+      : defaultWidgetKeys;
+
+    const nextVisible = sanitizeKeys(nextVisibleRaw);
+
+    // Order should be unique, valid, and contain all visible widgets
+    const nextOrderBase = sanitizeKeys(nextOrderRaw);
+    const missingVisible = nextVisible.filter((k) => !nextOrderBase.includes(k));
+    const nextOrder = [...nextOrderBase, ...missingVisible];
+
+    setVisibleWidgets(nextVisible);
+    setWidgetOrder(nextOrder);
+    setWidgetLayouts(parseWidgetLayouts());
+  }, [
+    user?.id,
+    dashboardPrefs?.visible_widgets,
+    dashboardPrefs?.card_order,
+    dashboardPrefs?.layout_view,
+  ]);
 
   // Save dashboard preferences
   const savePreferencesMutation = useMutation({
-    mutationFn: async ({ widgets, order, sizes }: { widgets: WidgetKey[], order: WidgetKey[], sizes: WidgetSizeConfig }) => {
+    mutationFn: async ({ widgets, order, layouts }: { widgets: WidgetKey[], order: WidgetKey[], layouts: WidgetLayoutConfig }) => {
       if (!user?.id) {
         throw new Error("User not authenticated");
       }
-      
-      console.log("Saving dashboard preferences:", { widgets, order, sizes, userId: user.id });
       
       const { data, error } = await supabase
         .from('dashboard_preferences')
@@ -97,7 +177,7 @@ const UserDashboard = () => {
           user_id: user.id,
           visible_widgets: widgets,
           card_order: order,
-          layout_view: JSON.stringify(sizes),
+          layout_view: JSON.stringify(layouts),
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id' })
         .select();
@@ -107,19 +187,85 @@ const UserDashboard = () => {
         throw error;
       }
       
-      console.log("Preferences saved successfully:", data);
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard-prefs', user?.id] });
-      setCustomizeOpen(false);
-      toast.success("Dashboard preferences saved");
+      toast.success("Dashboard layout saved");
     },
     onError: (error) => {
       console.error("Mutation error:", error);
-      toast.error("Failed to save preferences");
+      toast.error("Failed to save layout");
     },
   });
+
+  // Handle layout changes from ResizableDashboard
+  const handleLayoutChange = useCallback((newLayouts: WidgetLayoutConfig) => {
+    setWidgetLayouts(newLayouts);
+  }, []);
+
+  // Handle widget removal
+  const handleWidgetRemove = useCallback((key: WidgetKey) => {
+    const nextVisible = visibleWidgets.filter((w) => w !== key);
+    const nextOrder = widgetOrder.filter((w) => w !== key);
+    const nextLayouts = { ...widgetLayouts };
+    delete nextLayouts[key];
+
+    setVisibleWidgets(nextVisible);
+    setWidgetOrder(nextOrder);
+    setWidgetLayouts(nextLayouts);
+
+    savePreferencesMutation.mutate({
+      widgets: nextVisible,
+      order: nextOrder,
+      layouts: nextLayouts,
+    });
+  }, [visibleWidgets, widgetOrder, widgetLayouts, savePreferencesMutation]);
+
+  // Handle widget addition
+  const handleWidgetAdd = useCallback((key: WidgetKey) => {
+    if (visibleWidgets.includes(key)) return;
+
+    const nextVisible = [...visibleWidgets, key];
+    const nextOrder = widgetOrder.includes(key) ? widgetOrder : [...widgetOrder, key];
+
+    const defaultLayout =
+      DEFAULT_WIDGETS.find((w) => w.key === key)?.defaultLayout ??
+      ({ x: 0, y: 0, w: 3, h: 2 } as WidgetLayout);
+
+    const maxY = Math.max(
+      0,
+      ...Object.values(widgetLayouts).map((l) => (l?.y ?? 0) + (l?.h ?? 0))
+    );
+
+    const nextLayouts = {
+      ...widgetLayouts,
+      [key]: {
+        ...defaultLayout,
+        y: maxY,
+      },
+    };
+
+    setVisibleWidgets(nextVisible);
+    setWidgetOrder(nextOrder);
+    setWidgetLayouts(nextLayouts);
+
+    savePreferencesMutation.mutate({
+      widgets: nextVisible,
+      order: nextOrder,
+      layouts: nextLayouts,
+    });
+  }, [visibleWidgets, widgetOrder, widgetLayouts, savePreferencesMutation]);
+
+  // Save layout and exit resize mode
+  const handleSaveLayout = () => {
+    savePreferencesMutation.mutate({
+      widgets: visibleWidgets,
+      order: widgetOrder,
+      layouts: widgetLayouts
+    });
+    setIsResizeMode(false);
+  };
 
   // Fetch user's leads count
   const { data: leadsData, isLoading: leadsLoading } = useQuery({
@@ -148,25 +294,25 @@ const UserDashboard = () => {
     enabled: !!user?.id
   });
 
-  // Fetch user's deals count and value - check both created_by and lead_owner
+  // Fetch user's deals count and value
   const { data: dealsData, isLoading: dealsLoading } = useQuery({
     queryKey: ['user-deals-count', user?.id],
     queryFn: async () => {
-      // Fetch deals where user is either creator or lead owner
       const { data, error } = await supabase.from('deals').select('id, stage, total_contract_value, lead_owner, created_by');
       if (error) throw error;
       
-      // Filter deals that belong to current user (either as creator or lead owner)
       const userDeals = (data || []).filter(d => 
         d.created_by === user?.id || d.lead_owner === user?.id
       );
       
       const totalValue = userDeals.reduce((sum, d) => sum + (d.total_contract_value || 0), 0);
       const wonDeals = userDeals.filter(d => d.stage === 'Won');
+      const lostDeals = userDeals.filter(d => d.stage === 'Lost');
       const wonValue = wonDeals.reduce((sum, d) => sum + (d.total_contract_value || 0), 0);
       return {
         total: userDeals.length,
         won: wonDeals.length,
+        lost: lostDeals.length,
         totalValue,
         wonValue,
         active: userDeals.filter(d => !['Won', 'Lost', 'Dropped'].includes(d.stage)).length
@@ -210,7 +356,7 @@ const UserDashboard = () => {
     enabled: !!user?.id
   });
 
-  // Fetch task reminders (due soon or overdue) - only for current user
+  // Fetch task reminders
   const { data: taskReminders } = useQuery({
     queryKey: ['user-task-reminders', user?.id],
     queryFn: async () => {
@@ -230,7 +376,95 @@ const UserDashboard = () => {
     enabled: !!user?.id
   });
 
-  // Fetch recent activities from security audit log - filter by current user
+  // Fetch completed tasks count
+  const { data: completedTasksCount } = useQuery({
+    queryKey: ['user-completed-tasks', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return 0;
+      const { count, error } = await supabase
+        .from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .or(`assigned_to.eq.${user.id},created_by.eq.${user.id}`)
+        .eq('status', 'completed');
+      if (error) throw error;
+      return count || 0;
+    },
+    enabled: !!user?.id
+  });
+
+  // Fetch overdue items
+  const { data: overdueItemsCount } = useQuery({
+    queryKey: ['user-overdue-items', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return 0;
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const { count, error } = await supabase
+        .from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .or(`assigned_to.eq.${user.id},created_by.eq.${user.id}`)
+        .in('status', ['open', 'in_progress'])
+        .lt('due_date', today);
+      if (error) throw error;
+      return count || 0;
+    },
+    enabled: !!user?.id
+  });
+
+  // Fetch email stats
+  const { data: emailStats } = useQuery({
+    queryKey: ['user-email-stats', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return { sent: 0, opened: 0, clicked: 0 };
+      const { data, error } = await supabase
+        .from('email_history')
+        .select('id, status, open_count, click_count')
+        .eq('sent_by', user.id);
+      if (error) throw error;
+      const sent = data?.length || 0;
+      const opened = data?.filter(e => (e.open_count || 0) > 0).length || 0;
+      const clicked = data?.filter(e => (e.click_count || 0) > 0).length || 0;
+      return { sent, opened, clicked };
+    },
+    enabled: !!user?.id
+  });
+
+  // Fetch top deals
+  const { data: topDeals } = useQuery({
+    queryKey: ['user-top-deals', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data, error } = await supabase
+        .from('deals')
+        .select('id, deal_name, total_contract_value, stage')
+        .or(`created_by.eq.${user.id},lead_owner.eq.${user.id}`)
+        .not('stage', 'in', '("Lost","Dropped")')
+        .order('total_contract_value', { ascending: false })
+        .limit(5);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user?.id
+  });
+
+  // Fetch accounts data
+  const { data: accountsData } = useQuery({
+    queryKey: ['user-accounts-summary', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return { total: 0, healthy: 0, atRisk: 0 };
+      const { data, error } = await supabase
+        .from('accounts')
+        .select('id, score, status')
+        .eq('created_by', user.id);
+      if (error) throw error;
+      const total = data?.length || 0;
+      const healthy = data?.filter(a => (a.score || 0) >= 70).length || 0;
+      const atRisk = data?.filter(a => (a.score || 0) < 40).length || 0;
+      return { total, healthy, atRisk };
+    },
+    enabled: !!user?.id
+  });
+
+  // Fetch recent activities
   const { data: recentActivities } = useQuery({
     queryKey: ['user-recent-activities', user?.id],
     queryFn: async () => {
@@ -245,7 +479,6 @@ const UserDashboard = () => {
       if (error) throw error;
 
       return (data || []).map(log => {
-        // Build detailed subject based on action type
         let detailedSubject = `${log.action} ${log.resource_type}`;
         const details = log.details as any;
         
@@ -303,15 +536,6 @@ const UserDashboard = () => {
   };
 
   const isLoading = leadsLoading || contactsLoading || dealsLoading || actionItemsLoading;
-  const isWidgetVisible = (key: WidgetKey) => visibleWidgets.includes(key);
-
-  // Get ordered visible widgets for stats row
-  const statsWidgets: WidgetKey[] = ["leads", "contacts", "deals", "actionItems"];
-  const orderedStatsWidgets = widgetOrder.filter(w => statsWidgets.includes(w) && isWidgetVisible(w));
-
-  // Get ordered visible widgets for other sections
-  const getOrderedWidgets = (keys: WidgetKey[]) => 
-    widgetOrder.filter(w => keys.includes(w) && isWidgetVisible(w));
 
   if (isLoading) {
     return (
@@ -324,11 +548,27 @@ const UserDashboard = () => {
     );
   }
 
+  // Placeholder widget component
+  const PlaceholderWidget = ({ title, icon, description }: { title: string; icon: React.ReactNode; description: string }) => (
+    <Card className="h-full animate-fade-in">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        {icon}
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col items-center justify-center py-4 text-center">
+          <div className="text-muted-foreground/50 mb-2">{icon}</div>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   const renderWidget = (key: WidgetKey) => {
     switch (key) {
       case "leads":
         return (
-          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => navigate('/leads')}>
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => !isResizeMode && navigate('/leads')}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">My Leads</CardTitle>
               <FileText className="w-4 h-4 text-blue-600" />
@@ -341,7 +581,7 @@ const UserDashboard = () => {
         );
       case "contacts":
         return (
-          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => navigate('/contacts')}>
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => !isResizeMode && navigate('/contacts')}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">My Contacts</CardTitle>
               <Users className="w-4 h-4 text-green-600" />
@@ -354,7 +594,7 @@ const UserDashboard = () => {
         );
       case "deals":
         return (
-          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => navigate('/deals')}>
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => !isResizeMode && navigate('/deals')}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">My Deals</CardTitle>
               <Briefcase className="w-4 h-4 text-purple-600" />
@@ -367,23 +607,19 @@ const UserDashboard = () => {
         );
       case "actionItems":
         return (
-          <Card className="h-full hover:shadow-lg transition-shadow animate-fade-in">
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => !isResizeMode && navigate('/tasks')}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Action Items</CardTitle>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                Action Items
+                <span className="text-xs font-normal text-muted-foreground">(click to view)</span>
+              </CardTitle>
               <Clock className="w-4 h-4 text-orange-600" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{actionItemsData?.total || 0}</div>
-              <p className="text-xs text-muted-foreground">{actionItemsData?.overdue || 0} overdue</p>
-              <Button 
-                variant="link" 
-                size="sm" 
-                className="mt-2 p-0 h-auto text-xs text-primary"
-                onClick={() => navigate('/tasks')}
-              >
-                <Plus className="w-3 h-3 mr-1" />
-                Create Task
-              </Button>
+              <p className={`text-xs ${(actionItemsData?.overdue || 0) > 0 ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                {(actionItemsData?.overdue || 0) > 0 ? `⚠️ ${actionItemsData?.overdue} overdue` : 'No overdue items'}
+              </p>
             </CardContent>
           </Card>
         );
@@ -395,7 +631,7 @@ const UserDashboard = () => {
                 <Calendar className="w-5 h-5 text-primary" />
                 Upcoming Meetings
               </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => navigate('/meetings')}>
+              <Button variant="ghost" size="sm" onClick={() => !isResizeMode && navigate('/meetings')}>
                 View All
               </Button>
             </CardHeader>
@@ -403,15 +639,19 @@ const UserDashboard = () => {
               {upcomingMeetings && upcomingMeetings.length > 0 ? (
                 <div className="space-y-3">
                   {upcomingMeetings.map((meeting) => (
-                    <div key={meeting.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
+                    <div 
+                      key={meeting.id} 
+                      className="flex items-center justify-between p-2 rounded-lg bg-muted/50 cursor-pointer hover:bg-muted/80 transition-colors"
+                      onClick={() => { if (!isResizeMode) { setSelectedMeeting(meeting); setMeetingModalOpen(true); }}}
+                    >
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{meeting.subject}</p>
                         <p className="text-xs text-muted-foreground">
                           {format(new Date(meeting.start_time), 'dd/MM/yyyy HH:mm')}
                         </p>
                       </div>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        meeting.status === 'scheduled' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-100 text-gray-700'
+                      <span className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${
+                        meeting.status === 'scheduled' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
                       }`}>
                         {meeting.status}
                       </span>
@@ -419,7 +659,13 @@ const UserDashboard = () => {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No upcoming meetings</p>
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <Calendar className="w-8 h-8 text-muted-foreground/50 mb-2" />
+                  <p className="text-sm text-muted-foreground">No upcoming meetings scheduled</p>
+                  <Button variant="link" size="sm" className="mt-1" onClick={() => !isResizeMode && navigate('/meetings')}>
+                    Schedule a meeting
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -432,7 +678,7 @@ const UserDashboard = () => {
                 <Bell className="w-5 h-5 text-primary" />
                 Task Reminders
               </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => navigate('/tasks')}>
+              <Button variant="ghost" size="sm" onClick={() => !isResizeMode && navigate('/tasks')}>
                 View All
               </Button>
             </CardHeader>
@@ -449,13 +695,15 @@ const UserDashboard = () => {
                     return (
                       <div 
                         key={task.id} 
-                        className={`flex items-center justify-between p-2 rounded-lg ${
+                        className={`flex items-center justify-between p-2 rounded-lg cursor-pointer hover:ring-2 hover:ring-primary/20 transition-all ${
                           isOverdue 
                             ? 'bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700' 
                             : isDueToday 
                               ? 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
                               : 'bg-muted/50'
                         }`}
+                        onClick={() => { if (!isResizeMode) { setSelectedTask(task as Task); setTaskModalOpen(true); }}}
+                        title="Click to view task details"
                       >
                         <div className="min-w-0 flex-1">
                           <p className={`text-sm font-medium truncate ${isOverdue ? 'text-red-800 dark:text-red-200' : ''}`}>
@@ -467,7 +715,7 @@ const UserDashboard = () => {
                             Due: {task.due_date ? format(new Date(task.due_date), 'dd/MM/yyyy') : 'No date'}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                           {isOverdue && (
                             <span className="text-xs px-2 py-1 rounded-full bg-red-500 text-white font-semibold">
                               OVERDUE
@@ -486,7 +734,13 @@ const UserDashboard = () => {
                   })}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No pending tasks</p>
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <Bell className="w-8 h-8 text-muted-foreground/50 mb-2" />
+                  <p className="text-sm text-muted-foreground">No pending tasks</p>
+                  <Button variant="link" size="sm" className="mt-1" onClick={() => !isResizeMode && navigate('/tasks')}>
+                    Create a task
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -499,20 +753,22 @@ const UserDashboard = () => {
                 <Activity className="w-5 h-5 text-primary" />
                 Recent Activities
               </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => navigate('/settings?tab=audit')}>
+              <Button variant="ghost" size="sm" onClick={() => !isResizeMode && navigate('/notifications')}>
                 View All
               </Button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="relative">
               {recentActivities && recentActivities.length > 0 ? (
-                <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                <div className="space-y-3 max-h-[300px] overflow-y-auto scrollbar-thin pr-1">
                   {recentActivities.slice(0, 5).map((activity) => (
-                    <div key={activity.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                    <div key={activity.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50 group" title={activity.subject}>
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                         <Activity className="w-4 h-4 text-primary" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{activity.subject}</p>
+                        <p className="text-sm font-medium line-clamp-2 group-hover:line-clamp-none transition-all" title={activity.subject}>
+                          {activity.subject}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {activity.activity_type} • {format(new Date(activity.activity_date), 'dd/MM/yyyy HH:mm')}
                         </p>
@@ -531,6 +787,7 @@ const UserDashboard = () => {
           </Card>
         );
       case "performance":
+        const hasWonRevenue = (dealsData?.wonValue || 0) > 0;
         return (
           <Card className="h-full animate-fade-in">
             <CardHeader>
@@ -547,12 +804,22 @@ const UserDashboard = () => {
                 </div>
                 <Briefcase className="w-8 h-8 text-muted-foreground/50" />
               </div>
-              <div className="flex justify-between items-center p-3 bg-green-50 dark:bg-green-950/20 rounded-lg">
+              <div className={`flex justify-between items-center p-3 rounded-lg ${
+                hasWonRevenue 
+                  ? 'bg-green-50 dark:bg-green-950/20' 
+                  : 'bg-muted/50'
+              }`}>
                 <div>
                   <p className="text-sm text-muted-foreground">Won Revenue</p>
-                  <p className="text-xl font-bold text-green-600">{formatCurrency(dealsData?.wonValue || 0)}</p>
+                  <p className={`text-xl font-bold ${hasWonRevenue ? 'text-green-600' : 'text-muted-foreground'}`}>
+                    {formatCurrency(dealsData?.wonValue || 0)}
+                  </p>
                 </div>
-                <CheckCircle2 className="w-8 h-8 text-green-600/50" />
+                {hasWonRevenue ? (
+                  <CheckCircle2 className="w-8 h-8 text-green-600/50" />
+                ) : (
+                  <TrendingUp className="w-8 h-8 text-muted-foreground/30" />
+                )}
               </div>
             </CardContent>
           </Card>
@@ -564,17 +831,29 @@ const UserDashboard = () => {
               <CardTitle>Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/leads')}>
+              <Button 
+                variant="outline" 
+                className="w-full justify-between group hover:bg-primary hover:text-primary-foreground transition-colors" 
+                onClick={() => !isResizeMode && navigate('/leads')}
+              >
                 <span className="flex items-center gap-2"><Plus className="w-4 h-4" />Add New Lead</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Button>
-              <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/contacts')}>
+              <Button 
+                variant="outline" 
+                className="w-full justify-between group hover:bg-primary hover:text-primary-foreground transition-colors" 
+                onClick={() => !isResizeMode && navigate('/contacts')}
+              >
                 <span className="flex items-center gap-2"><Plus className="w-4 h-4" />Add New Contact</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Button>
-              <Button variant="outline" className="w-full justify-between" onClick={() => navigate('/deals')}>
+              <Button 
+                variant="outline" 
+                className="w-full justify-between group hover:bg-primary hover:text-primary-foreground transition-colors" 
+                onClick={() => !isResizeMode && navigate('/deals')}
+              >
                 <span className="flex items-center gap-2"><Plus className="w-4 h-4" />Create New Deal</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </Button>
             </CardContent>
           </Card>
@@ -583,7 +862,19 @@ const UserDashboard = () => {
         return (
           <Card className="h-full animate-fade-in">
             <CardHeader>
-              <CardTitle>Lead Status Overview</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                Lead Status Overview
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Shows your leads categorized by current status</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -601,54 +892,303 @@ const UserDashboard = () => {
                 </div>
                 <div className="text-center p-4 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
                   <p className="text-2xl font-bold text-purple-600">{leadsData?.total || 0}</p>
-                  <p className="text-sm text-muted-foreground">Total</p>
+                  <p className="text-sm text-muted-foreground">Total Leads</p>
                 </div>
               </div>
             </CardContent>
           </Card>
         );
+      
+      // Additional widgets with real data
+      case "salesTarget":
+        return (
+          <Card className="h-full animate-fade-in">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Sales Target</CardTitle>
+              <Target className="w-4 h-4 text-amber-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(dealsData?.wonValue || 0)}</div>
+              <p className="text-xs text-muted-foreground">Won this period</p>
+              <div className="mt-3 h-2 bg-muted rounded-full overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(((dealsData?.wonValue || 0) / 100000) * 100, 100)}%` }} />
+              </div>
+            </CardContent>
+          </Card>
+        );
+      case "pipelineValue":
+        return (
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => !isResizeMode && navigate('/deals')}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Pipeline Value</CardTitle>
+              <DollarSign className="w-4 h-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(dealsData?.totalValue || 0)}</div>
+              <p className="text-xs text-muted-foreground">{dealsData?.active || 0} active deals</p>
+            </CardContent>
+          </Card>
+        );
+      case "conversionRate":
+        const totalDeals = (dealsData?.won || 0) + (dealsData?.lost || 0);
+        const convRate = totalDeals > 0 ? Math.round((dealsData?.won || 0) / totalDeals * 100) : 0;
+        return (
+          <Card className="h-full animate-fade-in">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Conversion Rate</CardTitle>
+              <Percent className="w-4 h-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{convRate}%</div>
+              <p className="text-xs text-muted-foreground">{dealsData?.won || 0} won / {totalDeals} closed</p>
+            </CardContent>
+          </Card>
+        );
+      case "completedTasks":
+        return (
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => !isResizeMode && navigate('/tasks')}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Completed Tasks</CardTitle>
+              <CheckCircle className="w-4 h-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{completedTasksCount || 0}</div>
+              <p className="text-xs text-muted-foreground">Tasks completed</p>
+            </CardContent>
+          </Card>
+        );
+      case "overdueItems":
+        return (
+          <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer animate-fade-in" onClick={() => !isResizeMode && navigate('/tasks')}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Overdue Items</CardTitle>
+              <AlertTriangle className="w-4 h-4 text-red-600" />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${(overdueItemsCount || 0) > 0 ? 'text-red-600' : ''}`}>{overdueItemsCount || 0}</div>
+              <p className="text-xs text-muted-foreground">{(overdueItemsCount || 0) > 0 ? 'Needs attention' : 'All caught up!'}</p>
+            </CardContent>
+          </Card>
+        );
+      case "emailStats":
+        return (
+          <Card className="h-full animate-fade-in">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Email Statistics</CardTitle>
+              <Mail className="w-4 h-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-xl font-bold">{emailStats?.sent || 0}</p>
+                  <p className="text-xs text-muted-foreground">Sent</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-green-600">{emailStats?.opened || 0}</p>
+                  <p className="text-xs text-muted-foreground">Opened</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-blue-600">{emailStats?.clicked || 0}</p>
+                  <p className="text-xs text-muted-foreground">Clicked</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      case "topDeals":
+        return (
+          <Card className="h-full animate-fade-in">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-amber-500" />
+                Top Deals
+              </CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => !isResizeMode && navigate('/deals')}>
+                View All
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {topDeals && topDeals.length > 0 ? (
+                <div className="space-y-2">
+                  {topDeals.slice(0, 5).map((deal, idx) => (
+                    <div key={deal.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="text-xs font-bold text-muted-foreground">#{idx + 1}</span>
+                        <p className="text-sm font-medium truncate">{deal.deal_name}</p>
+                      </div>
+                      <span className="text-sm font-semibold text-green-600">{formatCurrency(deal.total_contract_value || 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <Trophy className="w-8 h-8 text-muted-foreground/50 mb-2" />
+                  <p className="text-sm text-muted-foreground">No deals yet</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      case "accountHealth":
+        return (
+          <Card className="h-full animate-fade-in" onClick={() => !isResizeMode && navigate('/accounts')}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Account Health</CardTitle>
+              <Building2 className="w-4 h-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-xl font-bold">{accountsData?.total || 0}</p>
+                  <p className="text-xs text-muted-foreground">Total</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-green-600">{accountsData?.healthy || 0}</p>
+                  <p className="text-xs text-muted-foreground">Healthy</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-red-600">{accountsData?.atRisk || 0}</p>
+                  <p className="text-xs text-muted-foreground">At Risk</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      case "winLossRatio":
+        const winLossTotal = (dealsData?.won || 0) + (dealsData?.lost || 0);
+        const winRate = winLossTotal > 0 ? Math.round((dealsData?.won || 0) / winLossTotal * 100) : 0;
+        return (
+          <Card className="h-full animate-fade-in">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Win/Loss Ratio</CardTitle>
+              <PieChart className="w-4 h-4 text-purple-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{dealsData?.won || 0}:{dealsData?.lost || 0}</div>
+              <p className="text-xs text-muted-foreground">{winRate}% win rate</p>
+            </CardContent>
+          </Card>
+        );
+      case "customerRetention":
+        return (
+          <Card className="h-full animate-fade-in">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Customer Retention</CardTitle>
+              <Star className="w-4 h-4 text-amber-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{accountsData?.healthy || 0}</div>
+              <p className="text-xs text-muted-foreground">Healthy accounts</p>
+            </CardContent>
+          </Card>
+        );
+      
+      // Placeholder widgets
+      case "revenueChart":
+        return <PlaceholderWidget title="Revenue Chart" icon={<LineChart className="w-4 h-4 text-green-600" />} description="Revenue trends over time" />;
+      case "dealForecast":
+        return <PlaceholderWidget title="Deal Forecast" icon={<ArrowUpRight className="w-4 h-4 text-blue-600" />} description="Predicted deal outcomes" />;
+      case "callLog":
+        return <PlaceholderWidget title="Call Log" icon={<PhoneCall className="w-4 h-4 text-purple-600" />} description="Recent call activities" />;
+      case "teamActivity":
+        return <PlaceholderWidget title="Team Activity" icon={<MessageSquare className="w-4 h-4 text-blue-600" />} description="Team collaboration updates" />;
+      case "taskProgress":
+        return <PlaceholderWidget title="Task Progress" icon={<ListTodo className="w-4 h-4 text-amber-600" />} description="Task completion progress" />;
+      case "regionStats":
+        return <PlaceholderWidget title="Region Statistics" icon={<Globe className="w-4 h-4 text-teal-600" />} description="Performance by region" />;
+      case "geoDistribution":
+        return <PlaceholderWidget title="Geo Distribution" icon={<MapPin className="w-4 h-4 text-red-600" />} description="Geographic data distribution" />;
+      case "leadSources":
+        return <PlaceholderWidget title="Lead Sources" icon={<Filter className="w-4 h-4 text-indigo-600" />} description="Where leads come from" />;
+      case "salesVelocity":
+        return <PlaceholderWidget title="Sales Velocity" icon={<Gauge className="w-4 h-4 text-orange-600" />} description="Speed of sales cycle" />;
+      case "growthTrend":
+        return <PlaceholderWidget title="Growth Trend" icon={<TrendingUp className="w-4 h-4 text-green-600" />} description="Business growth over time" />;
       default:
         return null;
     }
   };
 
-  // Get widget size class
-  const getWidgetSizeClass = (key: WidgetKey): string => {
-    const size = widgetSizes[key] || DEFAULT_WIDGETS.find(w => w.key === key)?.size || "medium";
-    switch (size) {
-      case "small": return "col-span-1";
-      case "medium": return "col-span-1 lg:col-span-2";
-      case "large": return "col-span-1 lg:col-span-3";
-      default: return "col-span-1";
-    }
-  };
-
-  // Get all visible widgets in order
-  const orderedVisibleWidgets = widgetOrder.filter(w => visibleWidgets.includes(w));
-
   return (
-    <div className="p-6 space-y-8">
+    <div className="p-6 space-y-8" ref={containerRef}>
       {/* Welcome Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">
             Welcome back{userName ? `, ${userName}` : ''}!
           </h1>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setCustomizeOpen(true)} className="gap-2">
-          <Settings2 className="w-4 h-4" />
-          Customize
-        </Button>
+        <div className="flex gap-2 flex-shrink-0">
+          {isResizeMode ? (
+            <>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add New Widget
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-0" align="end">
+                  <ScrollArea className="h-64">
+                    <div className="p-2 space-y-1">
+                      {DEFAULT_WIDGETS.filter(w => !visibleWidgets.includes(w.key)).length === 0 ? (
+                        <p className="text-sm text-muted-foreground p-3 text-center">All widgets are already added</p>
+                      ) : (
+                        DEFAULT_WIDGETS.filter(w => !visibleWidgets.includes(w.key)).map(widget => (
+                          <Button
+                            key={widget.key}
+                            variant="ghost"
+                            className="w-full justify-start gap-2"
+                            onClick={() => handleWidgetAdd(widget.key)}
+                          >
+                            {widget.label}
+                          </Button>
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+              <Button onClick={handleSaveLayout} className="gap-2" disabled={savePreferencesMutation.isPending}>
+                <Check className="w-4 h-4" />
+                {savePreferencesMutation.isPending ? 'Saving...' : 'Done'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setIsResizeMode(true)} className="gap-2">
+                <Move className="w-4 h-4" />
+                Resize
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setCustomizeOpen(true)} className="gap-2">
+                <Settings2 className="w-4 h-4" />
+                Customize
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Responsive Grid Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
-        {orderedVisibleWidgets.map(key => (
-          <div key={key} className={getWidgetSizeClass(key)}>
-            {renderWidget(key)}
-          </div>
-        ))}
-      </div>
+      {/* Resize mode indicator */}
+      {isResizeMode && (
+        <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
+          <p className="text-sm text-primary font-medium">
+            <Move className="w-4 h-4 inline mr-2" />
+            Resize Mode: Drag widgets to move, drag corners/edges to resize, click X to remove
+          </p>
+        </div>
+      )}
+
+      {/* Resizable Grid Layout */}
+      <ResizableDashboard
+        isResizeMode={isResizeMode}
+        visibleWidgets={visibleWidgets}
+        widgetLayouts={widgetLayouts}
+        onLayoutChange={handleLayoutChange}
+        onWidgetRemove={handleWidgetRemove}
+        renderWidget={renderWidget}
+        containerWidth={containerWidth}
+      />
 
       {/* Customize Modal */}
       <DashboardCustomizeModal
@@ -656,9 +1196,46 @@ const UserDashboard = () => {
         onOpenChange={setCustomizeOpen}
         visibleWidgets={visibleWidgets}
         widgetOrder={widgetOrder}
-        widgetSizes={widgetSizes}
-        onSave={(widgets, order, sizes) => savePreferencesMutation.mutate({ widgets, order, sizes })}
+        onSave={(widgets, order) => {
+          setVisibleWidgets(widgets);
+          setWidgetOrder(order);
+          savePreferencesMutation.mutate({ widgets, order, layouts: widgetLayouts });
+          setCustomizeOpen(false);
+        }}
         isSaving={savePreferencesMutation.isPending}
+      />
+      
+      {/* Task Modal */}
+      <TaskModal
+        open={taskModalOpen}
+        onOpenChange={(open) => {
+          setTaskModalOpen(open);
+          if (!open) setSelectedTask(null);
+        }}
+        task={selectedTask}
+        onSubmit={createTask}
+        onUpdate={async (taskId, updates, original) => {
+          const result = await updateTask(taskId, updates, original);
+          if (result) {
+            queryClient.invalidateQueries({ queryKey: ['dashboard-task-reminders'] });
+          }
+          return result;
+        }}
+      />
+      
+      {/* Meeting Modal */}
+      <MeetingModal
+        open={meetingModalOpen}
+        onOpenChange={(open) => {
+          setMeetingModalOpen(open);
+          if (!open) setSelectedMeeting(null);
+        }}
+        meeting={selectedMeeting}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['dashboard-upcoming-meetings'] });
+          setMeetingModalOpen(false);
+          setSelectedMeeting(null);
+        }}
       />
     </div>
   );

@@ -3,38 +3,78 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { GripVertical, FileText, Users, Briefcase, Clock, TrendingUp, Zap, BarChart3, Calendar, Activity, Bell, Maximize2, Minimize2 } from "lucide-react";
+import { 
+  GripVertical, FileText, Users, Briefcase, Clock, TrendingUp, Zap, BarChart3, Calendar, Activity, Bell, 
+  Target, PieChart, LineChart, DollarSign, Mail, MessageSquare, CheckCircle, AlertTriangle, 
+  Globe, Building2, Star, Trophy, Gauge, ListTodo, PhoneCall, MapPin, Percent, ArrowUpRight, Filter
+} from "lucide-react";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-export type WidgetKey = "leads" | "contacts" | "deals" | "actionItems" | "performance" | "quickActions" | "leadStatus" | "upcomingMeetings" | "recentActivities" | "taskReminders";
-export type WidgetSize = "small" | "medium" | "large";
+export type WidgetKey = 
+  | "leads" | "contacts" | "deals" | "actionItems" | "performance" | "quickActions" 
+  | "leadStatus" | "upcomingMeetings" | "recentActivities" | "taskReminders"
+  | "salesTarget" | "revenueChart" | "pipelineValue" | "conversionRate" | "emailStats"
+  | "teamActivity" | "completedTasks" | "overdueItems" | "topDeals" | "regionStats"
+  | "accountHealth" | "customerRetention" | "winLossRatio" | "salesVelocity" | "taskProgress"
+  | "callLog" | "geoDistribution" | "dealForecast" | "growthTrend" | "leadSources";
+
+export interface WidgetLayout {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface WidgetLayoutConfig {
+  [key: string]: WidgetLayout;
+}
 
 export interface DashboardWidget {
   key: WidgetKey;
   label: string;
   icon: React.ReactNode;
   visible: boolean;
-  size: WidgetSize;
-}
-
-export interface WidgetSizeConfig {
-  [key: string]: WidgetSize;
+  defaultLayout: WidgetLayout;
 }
 
 const DEFAULT_WIDGETS: DashboardWidget[] = [
-  // Dashboard section - core widgets first
-  { key: "leads", label: "My Leads", icon: <FileText className="w-4 h-4" />, visible: true, size: "small" },
-  { key: "contacts", label: "My Contacts", icon: <Users className="w-4 h-4" />, visible: true, size: "small" },
-  { key: "deals", label: "My Deals", icon: <Briefcase className="w-4 h-4" />, visible: true, size: "small" },
-  { key: "actionItems", label: "Action Items", icon: <Clock className="w-4 h-4" />, visible: true, size: "small" },
-  { key: "quickActions", label: "Quick Actions", icon: <Zap className="w-4 h-4" />, visible: true, size: "medium" },
-  { key: "upcomingMeetings", label: "Upcoming Meetings", icon: <Calendar className="w-4 h-4" />, visible: true, size: "medium" },
-  { key: "taskReminders", label: "Task Reminders", icon: <Bell className="w-4 h-4" />, visible: true, size: "medium" },
-  { key: "recentActivities", label: "Recent Activities", icon: <Activity className="w-4 h-4" />, visible: true, size: "medium" },
-  // Revenue Analytics section
-  { key: "performance", label: "My Performance", icon: <TrendingUp className="w-4 h-4" />, visible: true, size: "large" },
-  { key: "leadStatus", label: "Lead Status Overview", icon: <BarChart3 className="w-4 h-4" />, visible: true, size: "large" },
+  // Core widgets
+  { key: "leads", label: "My Leads", icon: <FileText className="w-4 h-4" />, visible: true, defaultLayout: { x: 0, y: 0, w: 2, h: 2 } },
+  { key: "contacts", label: "My Contacts", icon: <Users className="w-4 h-4" />, visible: true, defaultLayout: { x: 2, y: 0, w: 2, h: 2 } },
+  { key: "deals", label: "My Deals", icon: <Briefcase className="w-4 h-4" />, visible: true, defaultLayout: { x: 4, y: 0, w: 2, h: 2 } },
+  { key: "actionItems", label: "Action Items", icon: <Clock className="w-4 h-4" />, visible: true, defaultLayout: { x: 6, y: 0, w: 2, h: 2 } },
+  { key: "quickActions", label: "Quick Actions", icon: <Zap className="w-4 h-4" />, visible: true, defaultLayout: { x: 8, y: 0, w: 2, h: 3 } },
+  { key: "upcomingMeetings", label: "Upcoming Meetings", icon: <Calendar className="w-4 h-4" />, visible: true, defaultLayout: { x: 0, y: 2, w: 4, h: 3 } },
+  { key: "taskReminders", label: "Task Reminders", icon: <Bell className="w-4 h-4" />, visible: true, defaultLayout: { x: 4, y: 2, w: 4, h: 3 } },
+  { key: "recentActivities", label: "Recent Activities", icon: <Activity className="w-4 h-4" />, visible: true, defaultLayout: { x: 8, y: 3, w: 4, h: 3 } },
+  { key: "performance", label: "My Performance", icon: <TrendingUp className="w-4 h-4" />, visible: true, defaultLayout: { x: 0, y: 5, w: 6, h: 3 } },
+  { key: "leadStatus", label: "Lead Status Overview", icon: <BarChart3 className="w-4 h-4" />, visible: true, defaultLayout: { x: 6, y: 5, w: 6, h: 3 } },
+  // Sales & Revenue widgets
+  { key: "salesTarget", label: "Sales Target", icon: <Target className="w-4 h-4" />, visible: false, defaultLayout: { x: 0, y: 8, w: 3, h: 2 } },
+  { key: "revenueChart", label: "Revenue Chart", icon: <LineChart className="w-4 h-4" />, visible: false, defaultLayout: { x: 3, y: 8, w: 6, h: 3 } },
+  { key: "pipelineValue", label: "Pipeline Value", icon: <DollarSign className="w-4 h-4" />, visible: false, defaultLayout: { x: 9, y: 8, w: 3, h: 2 } },
+  { key: "conversionRate", label: "Conversion Rate", icon: <Percent className="w-4 h-4" />, visible: false, defaultLayout: { x: 0, y: 10, w: 3, h: 2 } },
+  { key: "dealForecast", label: "Deal Forecast", icon: <ArrowUpRight className="w-4 h-4" />, visible: false, defaultLayout: { x: 3, y: 11, w: 6, h: 3 } },
+  // Communication widgets
+  { key: "emailStats", label: "Email Statistics", icon: <Mail className="w-4 h-4" />, visible: false, defaultLayout: { x: 9, y: 10, w: 3, h: 3 } },
+  { key: "callLog", label: "Call Log", icon: <PhoneCall className="w-4 h-4" />, visible: false, defaultLayout: { x: 0, y: 12, w: 3, h: 3 } },
+  // Team & Activity widgets
+  { key: "teamActivity", label: "Team Activity", icon: <MessageSquare className="w-4 h-4" />, visible: false, defaultLayout: { x: 3, y: 14, w: 4, h: 3 } },
+  { key: "completedTasks", label: "Completed Tasks", icon: <CheckCircle className="w-4 h-4" />, visible: false, defaultLayout: { x: 7, y: 14, w: 2, h: 2 } },
+  { key: "overdueItems", label: "Overdue Items", icon: <AlertTriangle className="w-4 h-4" />, visible: false, defaultLayout: { x: 9, y: 13, w: 3, h: 2 } },
+  { key: "taskProgress", label: "Task Progress", icon: <ListTodo className="w-4 h-4" />, visible: false, defaultLayout: { x: 0, y: 15, w: 3, h: 3 } },
+  // Analytics widgets
+  { key: "topDeals", label: "Top Deals", icon: <Trophy className="w-4 h-4" />, visible: false, defaultLayout: { x: 3, y: 17, w: 4, h: 3 } },
+  { key: "regionStats", label: "Region Statistics", icon: <Globe className="w-4 h-4" />, visible: false, defaultLayout: { x: 7, y: 16, w: 5, h: 3 } },
+  { key: "geoDistribution", label: "Geo Distribution", icon: <MapPin className="w-4 h-4" />, visible: false, defaultLayout: { x: 0, y: 18, w: 6, h: 3 } },
+  { key: "leadSources", label: "Lead Sources", icon: <Filter className="w-4 h-4" />, visible: false, defaultLayout: { x: 6, y: 19, w: 4, h: 3 } },
+  // Account & Customer widgets
+  { key: "accountHealth", label: "Account Health", icon: <Building2 className="w-4 h-4" />, visible: false, defaultLayout: { x: 10, y: 19, w: 2, h: 3 } },
+  { key: "customerRetention", label: "Customer Retention", icon: <Star className="w-4 h-4" />, visible: false, defaultLayout: { x: 0, y: 21, w: 3, h: 2 } },
+  // Performance widgets
+  { key: "winLossRatio", label: "Win/Loss Ratio", icon: <PieChart className="w-4 h-4" />, visible: false, defaultLayout: { x: 3, y: 22, w: 3, h: 2 } },
+  { key: "salesVelocity", label: "Sales Velocity", icon: <Gauge className="w-4 h-4" />, visible: false, defaultLayout: { x: 6, y: 22, w: 3, h: 2 } },
+  { key: "growthTrend", label: "Growth Trend", icon: <TrendingUp className="w-4 h-4" />, visible: false, defaultLayout: { x: 9, y: 22, w: 3, h: 3 } },
 ];
 
 interface DashboardCustomizeModalProps {
@@ -42,8 +82,7 @@ interface DashboardCustomizeModalProps {
   onOpenChange: (open: boolean) => void;
   visibleWidgets: WidgetKey[];
   widgetOrder: WidgetKey[];
-  widgetSizes?: WidgetSizeConfig;
-  onSave: (visibleWidgets: WidgetKey[], widgetOrder: WidgetKey[], widgetSizes: WidgetSizeConfig) => void;
+  onSave: (visibleWidgets: WidgetKey[], widgetOrder: WidgetKey[]) => void;
   isSaving?: boolean;
 }
 
@@ -52,7 +91,6 @@ export const DashboardCustomizeModal = ({
   onOpenChange,
   visibleWidgets,
   widgetOrder,
-  widgetSizes = {},
   onSave,
   isSaving = false,
 }: DashboardCustomizeModalProps) => {
@@ -69,7 +107,6 @@ export const DashboardCustomizeModal = ({
         orderedWidgets.push({
           ...defaultWidget,
           visible: visibleWidgets.includes(key),
-          size: widgetSizes[key] || defaultWidget.size,
         });
       }
     });
@@ -80,23 +117,16 @@ export const DashboardCustomizeModal = ({
         orderedWidgets.push({
           ...w,
           visible: visibleWidgets.includes(w.key),
-          size: widgetSizes[w.key] || w.size,
         });
       }
     });
     
     setWidgets(orderedWidgets);
-  }, [visibleWidgets, widgetOrder, widgetSizes, open]);
+  }, [visibleWidgets, widgetOrder, open]);
 
   const toggleWidget = (key: WidgetKey) => {
     setWidgets(prev =>
       prev.map(w => (w.key === key ? { ...w, visible: !w.visible } : w))
-    );
-  };
-
-  const changeSize = (key: WidgetKey, size: WidgetSize) => {
-    setWidgets(prev =>
-      prev.map(w => (w.key === key ? { ...w, size } : w))
     );
   };
 
@@ -113,23 +143,11 @@ export const DashboardCustomizeModal = ({
   const handleSave = () => {
     const visible = widgets.filter(w => w.visible).map(w => w.key);
     const order = widgets.map(w => w.key);
-    const sizes: WidgetSizeConfig = {};
-    widgets.forEach(w => {
-      sizes[w.key] = w.size;
-    });
-    onSave(visible, order, sizes);
+    onSave(visible, order);
   };
 
   const handleReset = () => {
     setWidgets(DEFAULT_WIDGETS.map(w => ({ ...w, visible: true })));
-  };
-
-  const getSizeLabel = (size: WidgetSize) => {
-    switch (size) {
-      case "small": return "S";
-      case "medium": return "M";
-      case "large": return "L";
-    }
   };
 
   return (
@@ -141,7 +159,7 @@ export const DashboardCustomizeModal = ({
         
         <div className="flex-1 overflow-y-auto py-4">
           <p className="text-sm text-muted-foreground mb-4">
-            Drag to reorder, toggle visibility, and resize widgets.
+            Drag to reorder and toggle widget visibility. Use the <strong>Resize</strong> button on the dashboard to freely resize widgets.
           </p>
           
           <DragDropContext onDragEnd={handleDragEnd}>
@@ -179,26 +197,11 @@ export const DashboardCustomizeModal = ({
                               {widget.label}
                             </Label>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Select
-                              value={widget.size}
-                              onValueChange={(value: WidgetSize) => changeSize(widget.key, value)}
-                            >
-                              <SelectTrigger className="w-[70px] h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="small">Small</SelectItem>
-                                <SelectItem value="medium">Medium</SelectItem>
-                                <SelectItem value="large">Large</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <Switch
-                              id={widget.key}
-                              checked={widget.visible}
-                              onCheckedChange={() => toggleWidget(widget.key)}
-                            />
-                          </div>
+                          <Switch
+                            id={widget.key}
+                            checked={widget.visible}
+                            onCheckedChange={() => toggleWidget(widget.key)}
+                          />
                         </div>
                       )}
                     </Draggable>

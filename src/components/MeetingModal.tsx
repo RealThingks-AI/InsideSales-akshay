@@ -332,6 +332,7 @@ export const MeetingModal = ({
   const [tzPopoverOpen, setTzPopoverOpen] = useState(false);
   const [tzTooltipOpen, setTzTooltipOpen] = useState(false);
   const tzListRef = useRef<HTMLDivElement | null>(null);
+  const timeListRef = useRef<HTMLDivElement | null>(null);
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [timePopoverOpen, setTimePopoverOpen] = useState(false);
   const [endTimePopoverOpen, setEndTimePopoverOpen] = useState(false);
@@ -453,6 +454,23 @@ export const MeetingModal = ({
   };
   const availableStartTimeSlots = useMemo(() => getAvailableTimeSlots(startDate), [startDate, timezone, nowInTimezone]);
 
+  // Scroll to selected/current time when time popover opens
+  useEffect(() => {
+    if (!timePopoverOpen) return;
+
+    const raf = requestAnimationFrame(() => {
+      // Try to scroll to selected time first, otherwise scroll to first available slot
+      const selectedEl = timeListRef.current?.querySelector(`[data-time="${startTime}"]`) as HTMLElement | null;
+      if (selectedEl) {
+        selectedEl.scrollIntoView({ block: "center" });
+      } else if (availableStartTimeSlots.length > 0) {
+        const firstAvailable = timeListRef.current?.querySelector(`[data-time="${availableStartTimeSlots[0]}"]`) as HTMLElement | null;
+        firstAvailable?.scrollIntoView({ block: "start" });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [timePopoverOpen, startTime, availableStartTimeSlots]);
+
   // Calculate end time based on start time and duration
   const calculateEndDateTime = (start: Date, time: string, durationMinutes: number) => {
     const [h, m] = time.split(":").map(Number);
@@ -485,82 +503,88 @@ export const MeetingModal = ({
     return utcTime.toISOString();
   }, [startDate, startTime, endTime, timezone]);
   useEffect(() => {
-    if (open) {
-      fetchLeadsAndContacts();
-      if (meeting) {
-        const start = new Date(meeting.start_time);
-        const end = new Date(meeting.end_time);
-        const durationMs = end.getTime() - start.getTime();
-        const durationMinutes = Math.round(durationMs / (1000 * 60));
+    const initializeModal = async () => {
+      if (open) {
+        // Fetch leads and contacts first before setting form data
+        await fetchLeadsAndContacts();
+        
+        if (meeting) {
+          const start = new Date(meeting.start_time);
+          const end = new Date(meeting.end_time);
+          const durationMs = end.getTime() - start.getTime();
+          const durationMinutes = Math.round(durationMs / (1000 * 60));
 
-        setStartDate(start);
-        setStartTime(format(start, "HH:mm"));
-        setEndTime(format(end, "HH:mm"));
-        setDuration(durationMinutes.toString());
-        setDurationMode('duration');
-        setFormData({
-          subject: meeting.subject || "",
-          description: meeting.description || "",
-          join_url: meeting.join_url || "",
-          lead_id: meeting.lead_id || "",
-          contact_id: meeting.contact_id || "",
-          status: meeting.status || "scheduled",
-          outcome: meeting.outcome || ""
-        });
-        if (meeting.lead_id) {
+          setStartDate(start);
+          setStartTime(format(start, "HH:mm"));
+          setEndTime(format(end, "HH:mm"));
+          setDuration(durationMinutes.toString());
+          setDurationMode('duration');
+          setFormData({
+            subject: meeting.subject || "",
+            description: meeting.description || "",
+            join_url: meeting.join_url || "",
+            lead_id: meeting.lead_id || "",
+            contact_id: meeting.contact_id || "",
+            status: meeting.status || "scheduled",
+            outcome: meeting.outcome || ""
+          });
+          if (meeting.lead_id) {
+            setLinkType('lead');
+          } else if (meeting.contact_id) {
+            setLinkType('contact');
+          }
+          if (meeting.attendees && Array.isArray(meeting.attendees)) {
+            const existingEmails = (meeting.attendees as {
+              email: string;
+            }[]).map(a => a.email).filter(Boolean);
+            setParticipants(existingEmails);
+            if (existingEmails.length > 0) setShowParticipantsInput(true);
+          } else {
+            setParticipants([]);
+          }
+        } else {
+          // Default: next available 30-min slot in user's timezone
+          const browserTz = getBrowserTimezone();
+          const nowInTz = toZonedTime(new Date(), browserTz);
+          const currentHour = nowInTz.getHours();
+          const currentMinutes = nowInTz.getMinutes();
+          
+          // Calculate next 30-minute slot (either :00 or :30)
+          const defaultStart = new Date(nowInTz);
+          defaultStart.setSeconds(0, 0);
+          
+          if (currentMinutes < 30) {
+            // Next slot is :30 of current hour
+            defaultStart.setMinutes(30);
+          } else {
+            // Next slot is :00 of next hour
+            defaultStart.setHours(currentHour + 1, 0);
+          }
+          
+          setStartDate(defaultStart);
+          setStartTime(format(defaultStart, "HH:mm"));
+          setDuration("30");
+          setEndTime(updateEndTimeFromDuration(format(defaultStart, "HH:mm"), 30));
+          setDurationMode('duration');
+          setTimezone(getBrowserTimezone());
           setLinkType('lead');
-        } else if (meeting.contact_id) {
-          setLinkType('contact');
-        }
-        if (meeting.attendees && Array.isArray(meeting.attendees)) {
-          const existingEmails = (meeting.attendees as {
-            email: string;
-          }[]).map(a => a.email).filter(Boolean);
-          setParticipants(existingEmails);
-          if (existingEmails.length > 0) setShowParticipantsInput(true);
-        } else {
           setParticipants([]);
+          setEmailInput("");
+          setShowParticipantsInput(false);
+          setFormData({
+            subject: "",
+            description: "",
+            join_url: "",
+            lead_id: "",
+            contact_id: "",
+            status: "scheduled",
+            outcome: ""
+          });
         }
-      } else {
-        // Default: next available 30-min slot in user's timezone
-        const browserTz = getBrowserTimezone();
-        const nowInTz = toZonedTime(new Date(), browserTz);
-        const currentHour = nowInTz.getHours();
-        const currentMinutes = nowInTz.getMinutes();
-        
-        // Calculate next 30-minute slot (either :00 or :30)
-        const defaultStart = new Date(nowInTz);
-        defaultStart.setSeconds(0, 0);
-        
-        if (currentMinutes < 30) {
-          // Next slot is :30 of current hour
-          defaultStart.setMinutes(30);
-        } else {
-          // Next slot is :00 of next hour
-          defaultStart.setHours(currentHour + 1, 0);
-        }
-        
-        setStartDate(defaultStart);
-        setStartTime(format(defaultStart, "HH:mm"));
-        setDuration("30");
-        setEndTime(updateEndTimeFromDuration(format(defaultStart, "HH:mm"), 30));
-        setDurationMode('duration');
-        setTimezone(getBrowserTimezone());
-        setLinkType('lead');
-        setParticipants([]);
-        setEmailInput("");
-        setShowParticipantsInput(false);
-        setFormData({
-          subject: "",
-          description: "",
-          join_url: "",
-          lead_id: "",
-          contact_id: "",
-          status: "scheduled",
-          outcome: ""
-        });
       }
-    }
+    };
+    
+    initializeModal();
   }, [open, meeting]);
   const fetchLeadsAndContacts = async () => {
     try {
@@ -960,45 +984,51 @@ export const MeetingModal = ({
                     {formatDisplayTime(startTime)}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-28 p-1 z-50 max-h-48 overflow-y-auto" align="start">
-                  {availableStartTimeSlots.length > 0 ? availableStartTimeSlots.map(slot => <Button key={slot} variant={startTime === slot ? "secondary" : "ghost"} className="w-full justify-start text-xs h-7" onClick={() => {
-                  handleStartTimeChange(slot);
-                  setTimePopoverOpen(false);
-                }}>
-                        {formatDisplayTime(slot)}
-                      </Button>) : <p className="text-xs text-muted-foreground p-2">No times available</p>}
+                <PopoverContent className="w-28 p-1 z-50 pointer-events-auto" align="start">
+                  <div
+                    ref={timeListRef}
+                    className="max-h-48 overflow-y-auto overscroll-contain pointer-events-auto flex flex-col"
+                    onWheelCapture={(e) => e.stopPropagation()}
+                    onTouchMove={(e) => e.stopPropagation()}
+                  >
+                    {availableStartTimeSlots.length > 0 ? (
+                      availableStartTimeSlots.map((slot) => (
+                        <Button
+                          key={slot}
+                          data-time={slot}
+                          variant={startTime === slot ? "secondary" : "ghost"}
+                          className="w-full justify-start text-xs h-7"
+                          onClick={() => {
+                            handleStartTimeChange(slot);
+                            setTimePopoverOpen(false);
+                          }}
+                        >
+                          {formatDisplayTime(slot)}
+                        </Button>
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground p-2">No times available</p>
+                    )}
+                  </div>
                 </PopoverContent>
               </Popover>
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">End *</Label>
-              <Popover open={endTimePopoverOpen} onOpenChange={setEndTimePopoverOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full h-8 justify-start text-left font-normal text-xs">
-                    {formatDisplayTime(endTime)}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-28 p-1 z-50 max-h-48 overflow-y-auto" align="start">
-                  {TIME_SLOTS.map(slot => <Button key={slot} variant={endTime === slot ? "secondary" : "ghost"} className="w-full justify-start text-xs h-7" onClick={() => {
-                  handleEndTimeChange(slot);
-                  setEndTimePopoverOpen(false);
-                }}>
-                        {formatDisplayTime(slot)}
-                      </Button>)}
-                </PopoverContent>
-              </Popover>
+              <Label className="text-xs font-medium">Duration *</Label>
+              <Select value={duration} onValueChange={handleDurationChange}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select duration" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DURATION_OPTIONS.map(option => (
+                    <SelectItem key={option.value} value={option.value} className="text-xs">
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          </div>
-
-          {/* Auto-calculated Duration Display */}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-2 py-1.5 rounded">
-            <span className="font-medium">Duration:</span>
-            <span>{parseInt(duration) >= 60 
-              ? `${Math.floor(parseInt(duration) / 60)}h${parseInt(duration) % 60 > 0 ? ` ${parseInt(duration) % 60}m` : ''}`
-              : `${duration}m`
-            }</span>
-            {durationMode === 'endTime' && <span className="text-xs text-primary">(auto-calculated)</span>}
           </div>
 
           {/* Conflict Warning */}
@@ -1101,8 +1131,8 @@ export const MeetingModal = ({
           }))} placeholder="Meeting agenda..." rows={2} className="text-xs resize-none min-h-[60px]" />
           </div>
 
-          {/* Outcome - only for persisted meetings */}
-          {isPersistedMeeting && <MeetingOutcomeSelect value={formData.outcome} onChange={value => setFormData(prev => ({
+          {/* Outcome - only for completed meetings */}
+          {isPersistedMeeting && formData.status === 'completed' && <MeetingOutcomeSelect value={formData.outcome} onChange={value => setFormData(prev => ({
           ...prev,
           outcome: value
         }))} />}
