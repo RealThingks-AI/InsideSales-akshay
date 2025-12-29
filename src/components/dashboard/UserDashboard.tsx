@@ -11,7 +11,7 @@ import {
   Globe, Building2, Star, Trophy, Gauge, ListTodo, PhoneCall, MapPin, Percent, ArrowUpRight, Filter, Move, Check
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { DashboardCustomizeModal, WidgetKey, WidgetLayoutConfig, WidgetLayout, DEFAULT_WIDGETS } from "./DashboardCustomizeModal";
+import { WidgetKey, WidgetLayoutConfig, WidgetLayout, DEFAULT_WIDGETS } from "./DashboardCustomizeModal";
 import { ResizableDashboard } from "./ResizableDashboard";
 import { toast } from "sonner";
 import { format, isAfter, isBefore, addDays } from "date-fns";
@@ -27,7 +27,6 @@ const UserDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [customizeOpen, setCustomizeOpen] = useState(false);
   const [isResizeMode, setIsResizeMode] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
@@ -1125,7 +1124,7 @@ const UserDashboard = () => {
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="gap-2">
                     <Plus className="w-4 h-4" />
-                    Add New Widget
+                    Add Widget
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-64 p-0" align="end">
@@ -1155,26 +1154,20 @@ const UserDashboard = () => {
               </Button>
             </>
           ) : (
-            <>
-              <Button variant="outline" size="sm" onClick={() => setIsResizeMode(true)} className="gap-2">
-                <Move className="w-4 h-4" />
-                Resize
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setCustomizeOpen(true)} className="gap-2">
-                <Settings2 className="w-4 h-4" />
-                Customize
-              </Button>
-            </>
+            <Button variant="outline" size="sm" onClick={() => setIsResizeMode(true)} className="gap-2">
+              <Settings2 className="w-4 h-4" />
+              Customize
+            </Button>
           )}
         </div>
       </div>
 
-      {/* Resize mode indicator */}
+      {/* Customize mode indicator */}
       {isResizeMode && (
         <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
           <p className="text-sm text-primary font-medium">
-            <Move className="w-4 h-4 inline mr-2" />
-            Resize Mode: Drag widgets to move, drag corners/edges to resize, click X to remove
+            <Settings2 className="w-4 h-4 inline mr-2" />
+            Customize Mode: Drag widgets to move, drag corners/edges to resize, click X to remove, or add new widgets
           </p>
         </div>
       )}
@@ -1190,20 +1183,6 @@ const UserDashboard = () => {
         containerWidth={containerWidth}
       />
 
-      {/* Customize Modal */}
-      <DashboardCustomizeModal
-        open={customizeOpen}
-        onOpenChange={setCustomizeOpen}
-        visibleWidgets={visibleWidgets}
-        widgetOrder={widgetOrder}
-        onSave={(widgets, order) => {
-          setVisibleWidgets(widgets);
-          setWidgetOrder(order);
-          savePreferencesMutation.mutate({ widgets, order, layouts: widgetLayouts });
-          setCustomizeOpen(false);
-        }}
-        isSaving={savePreferencesMutation.isPending}
-      />
       
       {/* Task Modal */}
       <TaskModal
