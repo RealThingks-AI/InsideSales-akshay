@@ -330,7 +330,7 @@ export const TaskModal = ({
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select module" />
+                              <SelectValue placeholder="Select module..." />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -361,7 +361,7 @@ export const TaskModal = ({
                             >
                               <FormControl>
                                 <SelectTrigger className="flex-1">
-                                  <SelectValue placeholder="Select account" />
+                                  <SelectValue placeholder="Select account..." />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
@@ -410,7 +410,7 @@ export const TaskModal = ({
                             >
                               <FormControl>
                                 <SelectTrigger className="flex-1">
-                                  <SelectValue placeholder="Select contact" />
+                                  <SelectValue placeholder="Select contact..." />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
@@ -459,7 +459,7 @@ export const TaskModal = ({
                             >
                               <FormControl>
                                 <SelectTrigger className="flex-1">
-                                  <SelectValue placeholder="Select lead" />
+                                  <SelectValue placeholder="Select lead..." />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
@@ -565,7 +565,7 @@ export const TaskModal = ({
                     <FormItem>
                       <FormLabel>Task Title *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Enter task title" {...field} />
+                        <Input placeholder="e.g., Follow up with client" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -586,7 +586,7 @@ export const TaskModal = ({
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select user" />
+                              <SelectValue placeholder="Select user..." />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -725,7 +725,7 @@ export const TaskModal = ({
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Enter task description" rows={3} {...field} />
+                        <Textarea placeholder="Additional details about the task..." rows={3} {...field} />
                       </FormControl>
                     </FormItem>
                   )}
