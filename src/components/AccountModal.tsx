@@ -304,7 +304,7 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess, onCreated
                     <FormLabel>Company Name *</FormLabel>
                     <FormControl>
                       <Input 
-                        placeholder="Company Name" 
+                        placeholder="e.g., Acme Corporation"
                         {...field} 
                         onChange={(e) => {
                           field.onChange(e);
@@ -324,7 +324,7 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess, onCreated
                   <FormItem>
                     <FormLabel>Email</FormLabel>
                     <FormControl>
-                      <Input type="email" placeholder="contact@company.com" {...field} />
+                      <Input type="email" placeholder="e.g., name@company.com" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -340,7 +340,7 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess, onCreated
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select industry" />
+                          <SelectValue placeholder="Select industry..." />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -365,7 +365,7 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess, onCreated
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select region" />
+                          <SelectValue placeholder="Select region..." />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -390,7 +390,7 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess, onCreated
                     <Select onValueChange={field.onChange} value={field.value} disabled={!watchedRegion}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder={watchedRegion ? "Select country" : "Select region first"} />
+                          <SelectValue placeholder={watchedRegion ? "Select country..." : "Select region first..."} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -443,7 +443,7 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess, onCreated
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select company type" />
+                          <SelectValue placeholder="Select company type..." />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -469,7 +469,7 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess, onCreated
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select status" />
+                          <SelectValue placeholder="Select status..." />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
