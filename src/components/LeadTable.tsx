@@ -21,7 +21,7 @@ import { LeadColumnCustomizer, LeadColumnConfig, defaultLeadColumns } from "./Le
 import { LeadStatusFilter } from "./LeadStatusFilter";
 import { ConvertToDealModal } from "./ConvertToDealModal";
 import { LeadDeleteConfirmDialog } from "./LeadDeleteConfirmDialog";
-import { AccountViewModal } from "./AccountViewModal";
+import { AccountDetailModalById } from "./accounts/AccountDetailModalById";
 import { SendEmailModal, EmailRecipient } from "./SendEmailModal";
 import { MeetingModal } from "./MeetingModal";
 import { TaskModal } from "./tasks/TaskModal";
@@ -35,6 +35,7 @@ import { useQuery } from "@tanstack/react-query";
 // Export ref interface for parent component
 export interface LeadTableRef {
   handleBulkDelete: (deleteLinkedRecords?: boolean) => Promise<void>;
+  getSelectedLeadsForEmail: () => { id: string; name: string; email: string }[];
 }
 
 interface Lead {
@@ -188,6 +189,23 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
+  
+  // Handle viewId from URL (from global search)
+  const viewId = searchParams.get('viewId');
+  useEffect(() => {
+    if (viewId && leads.length > 0) {
+      const leadToView = leads.find(l => l.id === viewId);
+      if (leadToView) {
+        setViewingLead(leadToView);
+        setShowDetailModal(true);
+        // Clear the viewId from URL after opening
+        setSearchParams(prev => {
+          prev.delete('viewId');
+          return prev;
+        }, { replace: true });
+      }
+    }
+  }, [viewId, leads, setSearchParams]);
   
   // Column preferences hook
   const { columns, saveColumns, isSaving } = useColumnPreferences({
@@ -422,9 +440,21 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
     }
   };
 
-  // Expose handleBulkDelete to parent via ref
+  // Get selected leads for email
+  const getSelectedLeadsForEmail = () => {
+    return leads
+      .filter(lead => selectedLeads.includes(lead.id) && lead.email)
+      .map(lead => ({
+        id: lead.id,
+        name: lead.lead_name,
+        email: lead.email!,
+      }));
+  };
+
+  // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
-    handleBulkDelete
+    handleBulkDelete,
+    getSelectedLeadsForEmail
   }), [selectedLeads, leads]);
 
   const handleSelectAll = (checked: boolean) => {
@@ -523,8 +553,8 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
   // Generate consistent color from name
   const getAvatarColor = (name: string) => {
     const colors = [
-      'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500',
-      'bg-pink-500', 'bg-teal-500', 'bg-indigo-500', 'bg-amber-500'
+      'bg-slate-500', 'bg-slate-600', 'bg-zinc-500', 'bg-gray-500',
+      'bg-stone-500', 'bg-neutral-500', 'bg-slate-700', 'bg-zinc-600'
     ];
     const index = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
     return colors[index];
@@ -533,24 +563,24 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
   const getStatusBadgeClasses = (status?: string) => {
     switch (status) {
       case 'New':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800';
+        return 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 border-blue-200 dark:border-blue-800';
       case 'Attempted':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800';
+        return 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 border-amber-200 dark:border-amber-800';
       case 'Follow-up':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border-orange-200 dark:border-orange-800';
+        return 'bg-slate-100 text-slate-700 dark:bg-slate-800/30 dark:text-slate-300 border-slate-200 dark:border-slate-700';
       case 'Qualified':
-        return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800';
+        return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
       case 'Disqualified':
-        return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800';
+        return 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300 border-rose-200 dark:border-rose-800';
       case 'Converted':
-        return 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800';
+        return 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
       default:
         return 'bg-muted text-muted-foreground border-border';
     }
   };
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col h-full space-y-3">
       {/* Header and Actions */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 flex-wrap">
@@ -578,32 +608,33 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
               ))}
             </SelectContent>
           </Select>
-          <Select value={itemsPerPage.toString()} onValueChange={(value) => setItemsPerPage(Number(value))}>
-            <SelectTrigger className="w-[100px]">
+          <ClearFiltersButton hasActiveFilters={hasActiveFilters} onClear={clearAllFilters} />
+        </div>
+        
+        {/* Page size selector */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Show:</span>
+          <Select value={itemsPerPage.toString()} onValueChange={val => setItemsPerPage(Number(val))}>
+            <SelectTrigger className="w-[70px] h-8">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <SelectItem key={size} value={size.toString()}>
-                  {size} rows
-                </SelectItem>
-              ))}
+              {PAGE_SIZE_OPTIONS.map(size => <SelectItem key={size} value={size.toString()}>{size}</SelectItem>)}
             </SelectContent>
           </Select>
-          <ClearFiltersButton hasActiveFilters={hasActiveFilters} onClear={clearAllFilters} />
         </div>
       </div>
 
       {/* Table */}
-      <Card>
-        <div className="overflow-auto">
+      <Card className="flex-1 min-h-0 flex flex-col">
+        <div className="relative overflow-auto flex-1 min-h-0">
           {loading ? (
             <TableSkeleton columns={visibleColumns.length + 2} rows={10} />
           ) : (
             <Table>
-              <TableHeader className="sticky top-0 z-10">
-                <TableRow className="bg-muted/50 hover:bg-muted/60 border-b-2">
-                  <TableHead className="w-12 text-center font-bold text-foreground bg-muted/50">
+              <TableHeader>
+                <TableRow className="sticky top-0 z-20 bg-muted border-b-2">
+                  <TableHead className="w-12 text-center font-bold text-foreground">
                     <div className="flex justify-center">
                       <Checkbox 
                         checked={selectedLeads.length > 0 && selectedLeads.length === Math.min(pageLeads.length, 50)} 
@@ -614,7 +645,7 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
                   {visibleColumns.map(column => (
                     <TableHead 
                       key={column.field} 
-                      className="text-left font-bold text-foreground bg-muted/50 px-4 py-3 whitespace-nowrap"
+                      className="text-left font-bold text-foreground px-4 py-3 whitespace-nowrap min-w-[80px]"
                     >
                       <div 
                         className="group flex items-center gap-2 cursor-pointer hover:text-primary" 
@@ -625,7 +656,7 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
                       </div>
                     </TableHead>
                   ))}
-                  <TableHead className="text-center font-bold text-foreground bg-muted/50 w-48 px-4 py-3">
+                  <TableHead className="text-center font-bold text-foreground w-48 px-4 py-3">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -659,7 +690,7 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
                   pageLeads.map(lead => (
                     <TableRow 
                       key={lead.id} 
-                      className="group hover:bg-muted/20 border-b" 
+                      className={`group hover:bg-muted/30 border-b transition-colors ${selectedLeads.includes(lead.id) ? 'bg-primary/5' : ''}`}
                       data-state={selectedLeads.includes(lead.id) ? "selected" : undefined}
                     >
                       <TableCell className="text-center px-4 py-3">
@@ -676,35 +707,12 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
                           className="text-left px-4 py-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]"
                         >
                           {column.field === 'lead_name' ? (
-                            <div className="flex items-center gap-2">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0 ${getAvatarColor(lead.lead_name)}`}>
-                                {getLeadInitials(lead.lead_name)}
-                              </div>
-                              <button 
-                                onClick={() => {
-                                  setEditingLead(lead);
-                                  setShowModal(true);
-                                }} 
-                                className="text-primary hover:underline font-medium text-left truncate"
-                              >
-                                <HighlightedText text={lead.lead_name} highlight={debouncedSearchTerm} />
-                              </button>
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="icon" 
-                                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                      onClick={() => handleViewLead(lead)}
-                                    >
-                                      <Eye className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>View Details</TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            </div>
+                            <button 
+                              onClick={() => handleViewLead(lead)} 
+                              className="text-primary hover:underline font-medium text-left truncate"
+                            >
+                              <HighlightedText text={lead.lead_name} highlight={debouncedSearchTerm} />
+                            </button>
                           ) : column.field === 'account_company_name' ? (
                             <button 
                               onClick={() => {
@@ -719,23 +727,47 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
                               <HighlightedText text={lead.account_company_name} highlight={debouncedSearchTerm} />
                             </button>
                           ) : column.field === 'contact_owner' ? (
-                            <span className="truncate block">
-                              {lead.contact_owner ? displayNames[lead.contact_owner] || "Loading..." : '-'}
-                            </span>
-                          ) : column.field === 'lead_status' && lead.lead_status ? (
-                            <Badge variant="outline" className={getStatusBadgeClasses(lead.lead_status)}>
-                              {lead.lead_status}
-                            </Badge>
+                            lead.contact_owner ? (
+                              <span className="truncate block">
+                                {displayNames[lead.contact_owner] || "Loading..."}
+                              </span>
+                            ) : (
+                              <span className="text-center text-muted-foreground w-full block">-</span>
+                            )
+                          ) : column.field === 'lead_status' ? (
+                            lead.lead_status ? (
+                              <Badge variant="outline" className={getStatusBadgeClasses(lead.lead_status)}>
+                                {lead.lead_status}
+                              </Badge>
+                            ) : (
+                              <span className="text-center text-muted-foreground w-full block">-</span>
+                            )
                           ) : column.field === 'email' ? (
-                            <HighlightedText text={lead.email} highlight={debouncedSearchTerm} />
+                            lead.email ? (
+                              <HighlightedText text={lead.email} highlight={debouncedSearchTerm} />
+                            ) : (
+                              <span className="text-center text-muted-foreground w-full block">-</span>
+                            )
                           ) : column.field === 'phone_no' ? (
-                            <HighlightedText text={lead.phone_no} highlight={debouncedSearchTerm} />
+                            lead.phone_no ? (
+                              <HighlightedText text={lead.phone_no} highlight={debouncedSearchTerm} />
+                            ) : (
+                              <span className="text-center text-muted-foreground w-full block">-</span>
+                            )
                           ) : column.field === 'position' ? (
-                            <HighlightedText text={lead.position} highlight={debouncedSearchTerm} />
+                            lead.position ? (
+                              <HighlightedText text={lead.position} highlight={debouncedSearchTerm} />
+                            ) : (
+                              <span className="text-center text-muted-foreground w-full block">-</span>
+                            )
                           ) : (
-                            <span className="truncate block" title={lead[column.field as keyof Lead]?.toString() || '-'}>
-                              {lead[column.field as keyof Lead] || '-'}
-                            </span>
+                            lead[column.field as keyof Lead] ? (
+                              <span className="truncate block" title={lead[column.field as keyof Lead]?.toString()}>
+                                {lead[column.field as keyof Lead]}
+                              </span>
+                            ) : (
+                              <span className="text-center text-muted-foreground w-full block">-</span>
+                            )
                           )}
                         </TableCell>
                       ))}
@@ -811,37 +843,29 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
             </Table>
           )}
         </div>
-      </Card>
-
-      {/* Pagination - always show */}
-      <div className="flex items-center justify-between py-2">
-        <span className="text-sm text-muted-foreground">
-          Showing {filteredLeads.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}-{Math.min(currentPage * itemsPerPage, filteredLeads.length)} of {filteredLeads.length} leads
-        </span>
-        <div className="flex items-center gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} 
-            disabled={currentPage === 1}
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Previous
-          </Button>
-          <span className="text-sm bg-muted px-3 py-1 rounded-md font-medium">
-            Page {currentPage} of {totalPages || 1}
-          </span>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} 
-            disabled={currentPage === totalPages || totalPages === 0}
-          >
-            Next
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+        
+        {/* Pagination */}
+        <div className="flex items-center justify-between p-4 border-t flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              Showing {filteredLeads.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredLeads.length)} of {filteredLeads.length} leads
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1 || totalPages === 0}>
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </Button>
+            <span className="text-sm">
+              Page {currentPage} of {totalPages || 1}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages || totalPages === 0}>
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
-      </div>
+      </Card>
 
       {/* Modals */}
       <LeadModal 
@@ -859,6 +883,11 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
         onOpenChange={setShowDetailModal}
         lead={viewingLead}
         onUpdate={fetchLeads}
+        onEdit={(lead) => {
+          setShowDetailModal(false);
+          setEditingLead(lead);
+          setShowModal(true);
+        }}
       />
 
       <LeadColumnCustomizer 
@@ -894,7 +923,7 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
         leadName={leadToDelete?.lead_name} 
       />
 
-      <AccountViewModal 
+      <AccountDetailModalById 
         open={accountViewOpen} 
         onOpenChange={setAccountViewOpen} 
         accountId={viewAccountId} 

@@ -41,11 +41,11 @@ const getActivityIcon = (type: string) => {
 
 const getActivityColor = (type: string) => {
   switch (type) {
-    case 'call': return 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300';
-    case 'email': return 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300';
-    case 'meeting': return 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300';
-    case 'note': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300';
-    case 'task': return 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300';
+    case 'call': return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+    case 'email': return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300';
+    case 'meeting': return 'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300';
+    case 'note': return 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300';
+    case 'task': return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
     default: return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
   }
 };
